@@ -7,6 +7,8 @@ services:
   waffled:
     image: ghcr.io/evan-ribbey/waffled:${WAFFLED_VERSION:-latest}
     build: .
+    # A tiny init as PID 1 forwards stop signals to node and reaps children.
+    init: true
     ports: ["${HTTP_PORT:-8080}:3000"]
     env_file:
       - path: .env

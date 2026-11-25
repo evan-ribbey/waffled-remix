@@ -3,6 +3,8 @@ import api from './app'
 import { config } from './platform/config'
 import { log } from './platform/logger'
 import { createHttpServer, listen } from './platform/http-server'
+import { closePool } from './platform/db'
+import { installShutdown } from './platform/shutdown'
 import { mediaDir } from './platform/storage'
 import { version } from './platform/version'
 import { startSyncScheduler } from './modules/calendar/calendar-sync.service'
@@ -15,6 +17,7 @@ const server = createHttpServer(api, {
   webRoot: process.env.WEB_ROOT ?? '/app/web',
   mediaRoot: mediaDir(),
 })
+installShutdown(server, closePool)
 
 listen(server, { port: config.port, host: config.host }).then((addr) => {
   log.info('waffled-api listening', {
