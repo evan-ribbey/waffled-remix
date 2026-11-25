@@ -111,6 +111,8 @@ beforeEach(async () => {
   fake.state.failItemPut = false
   fake.state.recipes = []
   fake.state.images = {}
+  fake.state.redirectTo = null
+  fake.state.imageContentType = null
   __resetMealieCache()
   await disconnect()
 })
@@ -253,6 +255,14 @@ describe('mealie connection', () => {
 })
 
 describe('mealie client errors', () => {
+  it('reports a redirecting Mealie address instead of following it with the token', async () => {
+    fake.state.redirectTo = 'https://food.example.com'
+    const res = await connect()
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).message).toMatch(/redirected to https:\/\/food\.example\.com/)
+    expect(fake.state.requests.every((r) => r.auth === null)).toBe(true)
+  })
+
   it('maps an unreachable Mealie to 502 MealieUnavailable', async () => {
     await connect()
     fake.state.down = true
@@ -400,6 +410,19 @@ describe('mealie image proxy', () => {
     expect(r.headers['content-type']).toBe('image/webp')
     expect(r.headers['cache-control']).toBe('private, max-age=3600')
     expect(fake.state.requests.some((q) => q.path === `/api/media/recipes/${RID}/images/min-original.webp`)).toBe(true)
+  })
+
+  it('marks images nosniff and refuses a non-image or oversized body', async () => {
+    await connect()
+    fake.state.images[RID] = Buffer.from('<html>proxy login</html>')
+    fake.state.imageContentType = 'text/html'
+    expect((await call('GET', `/api/mealie/images/${RID}/min`, kid)).statusCode).toBe(502)
+    fake.state.imageContentType = null
+    fake.state.images[RID] = Buffer.alloc(6 * 1024 * 1024, 1)
+    expect((await call('GET', `/api/mealie/images/${RID}/tiny`, kid)).statusCode).toBe(502)
+    fake.state.images[RID] = Buffer.from([1, 2, 3])
+    const ok = await call('GET', `/api/mealie/images/${RID}/original`, kid)
+    expect((ok as unknown as { headers: Record<string, string> }).headers['x-content-type-options']).toBe('nosniff')
   })
 
   it('maps original and tiny sizes', async () => {

@@ -1,5 +1,5 @@
 // Read-only Mealie views: meal plan, recipe library, recipe detail and the image proxy.
-import { mealieFetch, mealieFetchRaw, mealieNoShoppingList, MealieError } from './mealie-client'
+import { mealieFetch, mealieFetchRaw, mealieNoShoppingList, MealieError, readCapped } from './mealie-client'
 import { cacheGet } from './mealie-cache'
 import type { MealieConn } from './mealie-connection'
 
@@ -133,8 +133,10 @@ export async function fetchImage(conn: MealieConn, recipeId: string, size: strin
   const res = await mealieFetchRaw({ baseUrl: conn.baseUrl }, `/api/media/recipes/${recipeId}/images/${file}`)
   if (res.status === 404) throw new MealieError('NotFound', 'Image not found', 404)
   if (!res.ok) throw new MealieError('MealieUnavailable', "Can't reach Mealie right now.", 502)
+  const contentType = res.headers.get('content-type') ?? 'image/webp'
+  if (!/^image\//i.test(contentType)) throw new MealieError('MealieUnavailable', "Can't reach Mealie right now.", 502)
   try {
-    return { bytes: Buffer.from(await res.arrayBuffer()), contentType: res.headers.get('content-type') ?? 'image/webp' }
+    return { bytes: await readCapped(res), contentType }
   } catch {
     throw new MealieError('MealieUnavailable', "Can't reach Mealie right now.", 502)
   }

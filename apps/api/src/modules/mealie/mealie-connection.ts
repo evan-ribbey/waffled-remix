@@ -101,7 +101,13 @@ export async function saveConnection(householdId: string, personId: string, inpu
   let publicUrl = existing?.publicUrl ?? null
   if (input.publicUrl !== undefined) publicUrl = input.publicUrl ? normalizeBaseUrl(String(input.publicUrl)) : null
 
-  const about = await mealieFetch<{ version?: string }>({ baseUrl }, '/api/app/about')
+  let about: { version?: string }
+  try {
+    about = await mealieFetch<{ version?: string }>({ baseUrl }, '/api/app/about')
+  } catch (e) {
+    if (e instanceof MealieError && e.name === 'MealieRedirected') throw badRequest(e.message)
+    throw e
+  }
   const version = about.version ?? null
   const major = parseInt((version ?? '').replace(/^v/i, ''), 10)
   if (Number.isFinite(major) && major < 2) throw badRequest('Mealie 2.0 or newer is required')

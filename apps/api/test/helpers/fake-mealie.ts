@@ -25,6 +25,10 @@ export interface FakeMealieState {
   nextId: number
   /** When true every connection is destroyed, simulating an unreachable Mealie. */
   down: boolean
+  /** When set, every request answers 301 to this origin + the same path. */
+  redirectTo: string | null
+  /** Overrides the image content type (e.g. a proxy error page served as text/html). */
+  imageContentType: string | null
 }
 
 export interface FakeMealie {
@@ -183,7 +187,7 @@ const routes: Route[] = [
     auth: false,
     handler: ({ fake, match }) => {
       const bytes = fake.state.images[match[1]]
-      return bytes ? { status: 200, raw: { contentType: 'image/webp', bytes } } : { status: 404 }
+      return bytes ? { status: 200, raw: { contentType: fake.state.imageContentType ?? 'image/webp', bytes } } : { status: 404 }
     },
   },
 ]
@@ -204,6 +208,8 @@ export async function startFakeMealie(): Promise<FakeMealie> {
       failItemPut: false,
       nextId: 100,
       down: false,
+      redirectTo: null,
+      imageContentType: null,
     },
     close: () =>
       new Promise<void>((resolve) => {
@@ -229,6 +235,11 @@ export async function startFakeMealie(): Promise<FakeMealie> {
       }
       const auth = req.headers.authorization ?? null
       fake.state.requests.push({ method, path: url.pathname + url.search, body, auth })
+      if (fake.state.redirectTo) {
+        res.writeHead(301, { location: fake.state.redirectTo + url.pathname + url.search })
+        res.end()
+        return
+      }
 
       const send = (status: number, payload?: unknown) => {
         if (payload === undefined) { res.writeHead(status); res.end(); return }
