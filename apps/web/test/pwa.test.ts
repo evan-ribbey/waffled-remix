@@ -424,3 +424,28 @@ describe('service worker unhashed assets', () => {
     expect(assets.put).not.toHaveBeenCalled()
   })
 })
+
+describe('service worker navigation shell', () => {
+  async function navigate(listeners: Map<string, (event: unknown) => void>, url: string) {
+    let responded: Promise<unknown> | undefined
+    listeners.get('fetch')?.({
+      request: { method: 'GET', mode: 'navigate', url, headers: {} },
+      respondWith: (promise: Promise<unknown>) => {
+        responded = promise
+      },
+    })
+    await responded?.catch(() => undefined)
+  }
+
+  it('does not cache a JSON error answered to a navigation as the app shell', async () => {
+    const { listeners, cacheFor } = await loadWorker({})
+    await navigate(listeners, 'https://waffled.test/auth/google/calendar/callback')
+    expect(cacheFor('waffled-dev-shell').put).not.toHaveBeenCalled()
+  })
+
+  it('still refreshes the cached shell from a good HTML navigation', async () => {
+    const { listeners, cacheFor } = await loadWorker({ '/meals': '<!doctype html><div id="root"></div>' })
+    await navigate(listeners, 'https://waffled.test/meals')
+    expect(cacheFor('waffled-dev-shell').put).toHaveBeenCalledWith('/index.html', expect.anything())
+  })
+})
