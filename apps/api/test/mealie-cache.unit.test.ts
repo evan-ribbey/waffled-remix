@@ -98,4 +98,42 @@ describe('mealie cache', () => {
     const fresh = vi.fn(async () => 'fresh')
     expect(await cacheGet('h', 'plan', 'k', fresh)).toBe('fresh')
   })
+
+  it('shares one load between identical reads already in flight', async () => {
+    let finish!: (v: string) => void
+    const load = vi.fn(() => new Promise<string>((r) => { finish = r }))
+    const a = cacheGet('h', 'shopping', 'k', load)
+    const b = cacheGet('h', 'shopping', 'k', load)
+    finish('x')
+    expect(await a).toBe('x')
+    expect(await b).toBe('x')
+    expect(load).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not hand an in-flight pre-write load to a read that starts after the write', async () => {
+    const finishers: ((v: string) => void)[] = []
+    const load = vi.fn(() => new Promise<string>((r) => { finishers.push(r) }))
+    const before = cacheGet('h', 'shopping', 'k', load)
+    cacheClear('h', 'shopping')
+    const after = cacheGet('h', 'shopping', 'k', load)
+    expect(load).toHaveBeenCalledTimes(2)
+    finishers[0]('old')
+    finishers[1]('new')
+    expect(await before).toBe('old')
+    expect(await after).toBe('new')
+  })
+
+  it('keeps the shopping list at least as long as the kiosk poll interval', async () => {
+    const load = vi.fn(async () => 'a')
+    await cacheGet('h', 'shopping', 'k', load)
+    vi.advanceTimersByTime(20_000)
+    await cacheGet('h', 'shopping', 'k', load)
+    expect(load).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries after a load that failed', async () => {
+    const load = vi.fn().mockImplementationOnce(() => { throw new Error('down') }).mockResolvedValueOnce('ok')
+    await expect(cacheGet('h', 'plan', 'k', load)).rejects.toThrow('down')
+    expect(await cacheGet('h', 'plan', 'k', load)).toBe('ok')
+  })
 })

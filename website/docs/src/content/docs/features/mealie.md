@@ -43,7 +43,7 @@ read-only **Connected to Mealie** line in Settings.
 - **Weekly Planning** — skips its Meals step, and the recap leaves out meals and the grocery count.
 
 Waffled re-checks Mealie about every 20 seconds while a screen is open. Behind that, it caches
-the shopping list for up to 10 seconds, the meal plan for 30 seconds, and recipe details for up
+the shopping list for up to 25 seconds, the meal plan for 30 seconds, and recipe details for up
 to 5 minutes, so changes made in Mealie's own app can take that long to appear.
 
 ## Pantry
