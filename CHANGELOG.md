@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-25
+
 ### Added
 
 - **Mealie integration.** Connect a Mealie 2.0+ server in Settings → Mealie and Today, Meals, Lists → Grocery, the Calendar and the capture bar use Mealie's meal plan, recipes and shopping list instead of Waffled's built-ins, which come back when you disconnect.
@@ -3133,7 +3135,8 @@ fixes bump **PATCH**. Pre-1.0, expect **MINOR** to carry the weight of feature w
 \* Most `chore`/`refactor`/`test`/`docs` commits are omitted; include one only when a
 user or operator would notice the result.
 
-[Unreleased]: https://github.com/evan-ribbey/waffled-remix/compare/v0.15.3...HEAD
+[Unreleased]: https://github.com/evan-ribbey/waffled-remix/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/evan-ribbey/waffled-remix/compare/v0.15.3...v0.16.0
 [0.15.3]: https://github.com/kevinpsites/waffled/compare/v0.15.2...v0.15.3
 [0.15.2]: https://github.com/kevinpsites/waffled/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/kevinpsites/waffled/compare/v0.15.0...v0.15.1
