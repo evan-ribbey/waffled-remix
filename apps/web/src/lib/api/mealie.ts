@@ -55,6 +55,8 @@ export interface MealieConnection {
   shoppingListId?: string | null
   shoppingListName?: string | null
   mealieVersion?: string | null
+  /** The stored token can't be decrypted (the server's encryption key changed). */
+  tokenUnreadable?: boolean
 }
 
 export interface MealieConnectionInput {

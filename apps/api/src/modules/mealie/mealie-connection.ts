@@ -2,7 +2,7 @@
 import { query } from '../../platform/db'
 import { encryptSecret, decryptSecret, encryptionAvailable } from '../../platform/crypto'
 import { cacheClear } from './mealie-cache'
-import { mealieFetch, mealieNotConnected, normalizeBaseUrl, MealieError, type MealieTarget } from './mealie-client'
+import { mealieAuthFailed, mealieFetch, mealieNotConnected, normalizeBaseUrl, MealieError, type MealieTarget } from './mealie-client'
 
 export interface MealieConn {
   baseUrl: string
@@ -13,6 +13,9 @@ export interface MealieConn {
   mealieVersion: string | null
 }
 
+// As stored: token is null when it can no longer be decrypted (key changed or lost).
+export type StoredConn = Omit<MealieConn, 'token'> & { token: string | null }
+
 interface Row {
   base_url: string
   public_url: string | null
@@ -22,14 +25,22 @@ interface Row {
   mealie_version: string | null
 }
 
-export async function getConnection(householdId: string): Promise<MealieConn | null> {
+function readToken(packed: string): string | null {
+  try {
+    return decryptSecret(packed)
+  } catch {
+    return null
+  }
+}
+
+export async function getConnection(householdId: string): Promise<StoredConn | null> {
   const { rows } = await query<Row>('select * from mealie_connections where household_id = $1', [householdId])
   const r = rows[0]
   if (!r) return null
   return {
     baseUrl: r.base_url,
     publicUrl: r.public_url,
-    token: decryptSecret(r.token_encrypted),
+    token: readToken(r.token_encrypted),
     shoppingListId: r.shopping_list_id,
     shoppingListName: r.shopping_list_name,
     mealieVersion: r.mealie_version,
@@ -44,13 +55,15 @@ export async function mealieConnected(householdId: string): Promise<boolean> {
 export async function requireConnection(householdId: string): Promise<MealieConn> {
   const c = await getConnection(householdId)
   if (!c) throw mealieNotConnected()
-  return c
+  if (c.token === null) throw mealieAuthFailed()
+  return { ...c, token: c.token }
 }
 
 // Never includes the token.
-export function presentConnection(c: MealieConn | null) {
+export function presentConnection(c: StoredConn | null) {
   if (!c) return { connected: false }
   return {
+    ...(c.token === null ? { tokenUnreadable: true } : {}),
     connected: true,
     baseUrl: c.baseUrl,
     publicUrl: c.publicUrl,
@@ -78,7 +91,11 @@ export async function saveConnection(householdId: string, personId: string, inpu
   if (!encryptionAvailable()) throw new MealieError('EncryptionUnavailable', "Encryption isn't configured on this server", 500)
   const existing = await getConnection(householdId)
   const baseUrl = normalizeBaseUrl(String(input.baseUrl ?? ''))
-  const token = typeof input.token === 'string' && input.token.trim() ? input.token.trim() : existing?.token
+  const newToken = typeof input.token === 'string' && input.token.trim() ? input.token.trim() : null
+  // The stored token belongs to the stored address; never send it anywhere else.
+  const addressChanged = !!existing && existing.baseUrl !== baseUrl
+  if (addressChanged && !newToken) throw badRequest('Enter the API token again for the new Mealie address')
+  const token = newToken ?? existing?.token
   if (!token) throw badRequest('A Mealie API token is required')
 
   let publicUrl = existing?.publicUrl ?? null
@@ -96,8 +113,8 @@ export async function saveConnection(householdId: string, personId: string, inpu
     throw e
   }
 
-  let listId = existing?.shoppingListId ?? null
-  let listName = existing?.shoppingListName ?? null
+  let listId = addressChanged ? null : existing?.shoppingListId ?? null
+  let listName = addressChanged ? null : existing?.shoppingListName ?? null
   if (input.shoppingListId !== undefined) {
     if (!input.shoppingListId) {
       listId = null

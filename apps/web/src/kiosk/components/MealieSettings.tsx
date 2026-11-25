@@ -69,6 +69,10 @@ export function MealieSettings({ isAdmin }: { isAdmin: boolean }) {
   }
 
   const connected = !!conn?.connected
+  // A saved token only belongs to the saved address (the server enforces this too).
+  const addressEdited = connected && baseUrl.trim().replace(/\/+$/, '') !== (conn?.baseUrl ?? '')
+  const needsToken = !connected || addressEdited || !!conn?.tokenUnreadable
+  const tokenPlaceholder = addressEdited ? 'Paste the token for this Mealie' : needsToken ? 'Paste a Mealie API token' : '••• saved'
 
   return (
     <div className="set-panel">
@@ -95,8 +99,13 @@ export function MealieSettings({ isAdmin }: { isAdmin: boolean }) {
           <label className="field">
             <span>API token</span>
             <span className="tiny muted">Create one in Mealie under your profile → API Tokens.</span>
-            <input aria-label="API token" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder={connected ? '••• saved' : 'Paste a Mealie API token'} />
+            <input aria-label="API token" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder={tokenPlaceholder} />
           </label>
+          {conn.tokenUnreadable && (
+            <div className="tiny" role="alert" style={{ fontWeight: 700, color: 'var(--primary)' }}>
+              Waffled can't read the saved Mealie token anymore (its encryption key changed). Paste a new token and save, or disconnect.
+            </div>
+          )}
           {connected && lists.length > 0 && (
             <label className="field">
               <span>Shopping list</span>
@@ -107,7 +116,7 @@ export function MealieSettings({ isAdmin }: { isAdmin: boolean }) {
             </label>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6 }}>
-            <button type="button" className="btn btn-primary" onClick={save} disabled={busy || !baseUrl.trim()}>{connected ? 'Save' : 'Connect'}</button>
+            <button type="button" className="btn btn-primary" onClick={save} disabled={busy || !baseUrl.trim() || (addressEdited && !token.trim())}>{connected ? 'Save' : 'Connect'}</button>
             {connected && <button type="button" className="btn btn-ghost" onClick={disconnect} disabled={busy}>Disconnect</button>}
           </div>
           {listsErr && <div className="tiny" role="alert" style={{ fontWeight: 700, color: 'var(--primary)', marginTop: 10 }}>Couldn't load your Mealie shopping lists. Try again.</div>}

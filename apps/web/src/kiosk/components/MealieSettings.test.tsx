@@ -42,6 +42,23 @@ describe('MealieSettings (admin)', () => {
     expect(api.saveConnection.mock.calls[0][0]).not.toHaveProperty('token')
   })
 
+  it('asks for a new token when the saved one can no longer be read, and still offers Disconnect', async () => {
+    api.connection.mockResolvedValue({ ...connected, tokenUnreadable: true } as never)
+    api.shoppingLists.mockRejectedValue(new Error('502'))
+    render(<MealieSettings isAdmin />)
+    expect(await screen.findByText(/can't read the saved Mealie token/i)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Paste a Mealie API token')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Disconnect' })).toBeInTheDocument()
+  })
+
+  it('asks for the token again once the Mealie URL is edited', async () => {
+    api.connection.mockResolvedValue(connected as never)
+    render(<MealieSettings isAdmin />)
+    fireEvent.change(await screen.findByLabelText('Mealie URL'), { target: { value: 'http://other:9000' } })
+    expect(screen.getByPlaceholderText('Paste the token for this Mealie')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
   it('asks before disconnecting', async () => {
     api.connection.mockResolvedValue(connected as never)
     api.disconnect.mockResolvedValue(undefined as never)

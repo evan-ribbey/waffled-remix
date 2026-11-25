@@ -18,7 +18,7 @@ Waffled open **Settings → Mealie** and fill in:
 - **Mealie URL** — where the Waffled server reaches Mealie.
 - **Public URL** (optional) — the address you open Mealie at in a browser, if different. It is
   used for the **Open in Mealie** links.
-- **API token** — pasted once, stored encrypted, and never shown again.
+- **API token** — pasted once, stored encrypted, and never shown again. Changing the Mealie URL asks for the token again, and resets the chosen shopping list.
 
 **Docker tip:** if Mealie runs on the same Docker network as Waffled, the Mealie URL can be the
 internal one (for example `http://mealie:9000`) while the public URL is the one you browse to.

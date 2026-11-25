@@ -210,6 +210,41 @@ describe('mealie connection', () => {
     expect(row.rows[0]).toEqual({ shopping_list_id: 'list-2', shopping_list_name: 'Costco' })
   })
 
+  it('requires the token again when the Mealie address changes', async () => {
+    await connect()
+    fake.state.requests.length = 0
+    const res = await call('PUT', '/api/mealie/connection', kevin, { baseUrl: 'http://127.0.0.1:9' })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).message).toBe('Enter the API token again for the new Mealie address')
+    expect(fake.state.requests.length).toBe(0)
+  })
+
+  it('forgets the chosen shopping list when the Mealie address changes', async () => {
+    await connect({ shoppingListId: 'list-2' })
+    const other = await startFakeMealie()
+    try {
+      const res = await call('PUT', '/api/mealie/connection', kevin, { baseUrl: other.url, token: other.token })
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body)).toMatchObject({ baseUrl: other.url, shoppingListId: null, shoppingListName: null })
+    } finally {
+      await other.close()
+    }
+  })
+
+  it('stays recoverable when the stored token can no longer be decrypted', async () => {
+    await connect()
+    await withClient((c) => c.query(`update mealie_connections set token_encrypted = $2 where household_id = $1`, [householdId, Buffer.alloc(40, 7).toString('base64')]))
+    const get = await call('GET', '/api/mealie/connection', kevin)
+    expect(get.statusCode).toBe(200)
+    expect(JSON.parse(get.body)).toMatchObject({ connected: true, tokenUnreadable: true })
+    const read = await call('GET', '/api/mealie/shopping-lists', kevin)
+    expect(read.statusCode).toBe(502)
+    expect(JSON.parse(read.body).error).toBe('MealieAuthFailed')
+    expect((await call('PUT', '/api/mealie/connection', kevin, { baseUrl: fake.url })).statusCode).toBe(400)
+    expect((await connect()).statusCode).toBe(200)
+    expect(JSON.parse((await call('GET', '/api/mealie/connection', kevin)).body).tokenUnreadable).toBeUndefined()
+  })
+
   it('disconnects', async () => {
     await connect()
     expect((await disconnect()).statusCode).toBe(204)
