@@ -27,8 +27,12 @@ const TYPES: Record<string, string> = {
 const IMMUTABLE = 'public, max-age=31536000, immutable'
 const NO_CACHE_FILES = new Set(['/index.html', '/sw.js', '/asset-manifest.json'])
 
+// Only the calendar OAuth callbacks live under /auth on the api; /auth/callback is the
+// web app's SSO landing route and must get index.html.
+const API_AUTH_PATH = /^\/auth\/[^/]+\/calendar(\/|$)/
+
 function isApiPath(p: string): boolean {
-  return p === '/healthz' || p === '/api' || p.startsWith('/api/') || p === '/auth' || p.startsWith('/auth/')
+  return p === '/healthz' || p === '/api' || p.startsWith('/api/') || API_AUTH_PATH.test(p)
 }
 
 // Resolve a request path under root; null when it escapes the root or is malformed.

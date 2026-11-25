@@ -91,8 +91,14 @@ describe('static serving', () => {
     },
   )
 
+  it('serves the web app at /auth/callback so SSO can finish', async () => {
+    const res = await get('/auth/callback?code=handoff123')
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe(INDEX)
+  })
+
   it('routes /api and /auth to the api, not index.html', async () => {
-    for (const p of ['/api/nope', '/auth/microsoft/calendar/callback']) {
+    for (const p of ['/api/nope', '/auth/microsoft/calendar/callback', '/auth/google/calendar/callback']) {
       const res = await get(p)
       expect(res.status).toBe(404)
       expect(await res.json()).toEqual({ error: 'NotFound' })
