@@ -61,10 +61,11 @@ export const trackersApi = {
   remove: (id: string) => apiDelete(`/api/trackers/${id}`).then(done),
   log: (id: string, input: EntryInput = {}) => apiSend<{ entry: TrackerEntry }>('POST', `/api/trackers/${id}/entries`, input).then(done),
   // `before` is the opaque nextBefore cursor from the previous page; pass it back untouched.
-  entries: (id: string, opts: { personId?: string; before?: string } = {}) => {
+  entries: (id: string, opts: { personId?: string; before?: string; limit?: number } = {}) => {
     const qs = new URLSearchParams()
     if (opts.personId) qs.set('personId', opts.personId)
     if (opts.before) qs.set('before', opts.before)
+    if (opts.limit) qs.set('limit', String(opts.limit))
     const s = qs.toString()
     return apiGet<{ entries: TrackerEntry[]; nextBefore: string | null }>(`/api/trackers/${id}/entries${s ? `?${s}` : ''}`)
   },
