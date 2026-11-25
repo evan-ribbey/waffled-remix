@@ -2,12 +2,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type http from 'node:http'
+import http from 'node:http'
+import { gunzipSync } from 'node:zlib'
 import type { AddressInfo } from 'node:net'
 import { createHttpServer } from '../src/platform/http-server'
 
 const INDEX = '<!doctype html><title>spa</title>'
 const SECRET = 'TOP-SECRET'
+const BIG_JS = 'export const x = "' + 'waffle '.repeat(2000) + '"\n'
 
 let base: string
 let server: http.Server
@@ -26,6 +28,7 @@ beforeAll(async () => {
   writeFileSync(join(webRoot, 'index.html'), INDEX)
   writeFileSync(join(webRoot, 'assets', 'app.abc.js'), 'console.log(1)')
   writeFileSync(join(webRoot, 'sw.js'), 'self.skip()')
+  writeFileSync(join(webRoot, 'assets', 'big.def.js'), BIG_JS)
   writeFileSync(join(mediaRoot, 'h1', 'a.jpg'), 'jpegbytes')
   writeFileSync(join(tmp, 'secrets.json'), SECRET)
   server = createHttpServer(fakeApi, { webRoot, mediaRoot })
@@ -109,5 +112,45 @@ describe('static serving', () => {
     const res = await get('/', 'HEAD')
     expect(res.status).toBe(200)
     expect(await res.text()).toBe('')
+  })
+})
+
+function raw(path: string, headers: Record<string, string> = {}): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
+  return new Promise((resolveP, reject) => {
+    const req = http.request(base + path, { headers }, (res) => {
+      const chunks: Buffer[] = []
+      res.on('data', (c: Buffer) => chunks.push(c))
+      res.on('end', () => resolveP({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks) }))
+    })
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+describe('static compression and validators', () => {
+  it('gzips a compressible asset when the client accepts it', async () => {
+    const res = await raw('/assets/big.def.js', { 'accept-encoding': 'gzip, br' })
+    expect(res.status).toBe(200)
+    expect(res.headers['content-encoding']).toBe('gzip')
+    expect(res.headers['vary']).toMatch(/accept-encoding/i)
+    expect(res.body.length).toBeLessThan(BIG_JS.length / 4)
+    expect(gunzipSync(res.body).toString()).toBe(BIG_JS)
+  })
+
+  it('sends it plain to a client that does not accept gzip, and never gzips images', async () => {
+    const plain = await raw('/assets/big.def.js')
+    expect(plain.headers['content-encoding']).toBeUndefined()
+    expect(plain.body.toString()).toBe(BIG_JS)
+    const img = await raw('/media/h1/a.jpg', { 'accept-encoding': 'gzip' })
+    expect(img.headers['content-encoding']).toBeUndefined()
+  })
+
+  it('answers a matching If-None-Match with 304', async () => {
+    const first = await raw('/index.html')
+    const etag = first.headers['etag']
+    expect(etag).toBeTruthy()
+    const again = await raw('/index.html', { 'if-none-match': String(etag) })
+    expect(again.status).toBe(304)
+    expect(again.body.length).toBe(0)
   })
 })

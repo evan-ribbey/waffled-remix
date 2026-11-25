@@ -1,5 +1,6 @@
 import http from 'node:http'
 import { isIP, type AddressInfo } from 'node:net'
+import { acceptsGzip, gzip, isCompressible, varyOnEncoding } from './compress'
 import { config } from './config'
 import { log } from './logger'
 import { serveStatic, type StaticOptions } from './static'
@@ -110,8 +111,25 @@ export function createHttpServer(
       }
       try {
         const result = (await api.run(event, {})) as RunResult
-        res.writeHead(result.statusCode, result.headers ?? {})
-        res.end(result.isBase64Encoded && result.body ? Buffer.from(result.body, 'base64') : result.body)
+        const headers: Record<string, string | number | string[]> = { ...(result.headers ?? {}) }
+        let body: Buffer | string | undefined =
+          result.isBase64Encoded && result.body ? Buffer.from(result.body, 'base64') : result.body
+        const key = (name: string) => Object.keys(headers).find((k) => k.toLowerCase() === name)
+        const typeKey = key('content-type')
+        const contentType = typeKey ? String(headers[typeKey]) : undefined
+        const size = body === undefined ? 0 : Buffer.byteLength(body)
+        if (!key('content-encoding') && isCompressible(contentType, size)) {
+          const varyKey = key('vary') ?? 'vary'
+          headers[varyKey] = varyOnEncoding(headers[varyKey])
+          if (acceptsGzip(req)) {
+            body = gzip(Buffer.isBuffer(body) ? body : Buffer.from(body ?? '', 'utf8'))
+            headers['content-encoding'] = 'gzip'
+            const lenKey = key('content-length')
+            if (lenKey) delete headers[lenKey]
+          }
+        }
+        res.writeHead(result.statusCode, headers)
+        res.end(body)
       } catch (err) {
         log.error('server adapter error', { err })
         res.writeHead(500, { 'content-type': 'application/json' })
