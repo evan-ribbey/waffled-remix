@@ -1,3 +1,5 @@
+import { act } from 'react'
+import { emit } from '../lib/api/bus'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router'
 import { Calendar } from './Calendar'
@@ -64,6 +66,16 @@ describe('Calendar with Mealie', () => {
     expect((await screen.findAllByText('Dentist')).length).toBeGreaterThan(0)
     await waitFor(() => expect(mealplan).toHaveBeenCalled())
     expect(screen.queryByText(/🍽️/)).toBeNull()
+  })
+
+  it('keeps the meal chips when a later refresh fails', async () => {
+    mealplan.mockResolvedValueOnce({ entries: [{ id: 3, date: '2026-06-15', entryType: 'dinner', title: 'Tacos', recipe: null }] })
+    renderCal()
+    await screen.findAllByText('🍽️ Tacos')
+    mealplan.mockRejectedValueOnce(new Error('down'))
+    await act(async () => { emit('mealie') })
+    await waitFor(() => expect(mealplan).toHaveBeenCalledTimes(2))
+    expect(screen.getAllByText('🍽️ Tacos').length).toBeGreaterThan(0)
   })
 
   it('leaves events alone and makes no Mealie request when not connected', async () => {

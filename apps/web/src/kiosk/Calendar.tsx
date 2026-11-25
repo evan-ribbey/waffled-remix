@@ -106,11 +106,11 @@ export function Calendar() {
   const { from, to } = useMemo(() => rangeFor(view, anchor, firstDay), [view, anchor, firstDay])
   const { events: rawEvents, refetch } = useEventsRange(from, to)
 
-  // Connected: Mealie's plan replaces Waffled's own meal mirrors. A Mealie failure just
-  // leaves the chips out.
+  // Connected: Mealie's plan replaces Waffled's own meal mirrors. A failed refresh keeps
+  // the last plan (useMealieQuery holds data on error); a first failure leaves chips out.
   const { connected: mealieOn } = useMealie()
   const { data: plan } = useMealieQuery(
-    () => mealieApi.mealplan(from, to).catch(() => null),
+    () => mealieApi.mealplan(from, to),
     [from, to],
     mealieOn
   )
