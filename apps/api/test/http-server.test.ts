@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { request } from 'node:http'
 import { type AddressInfo } from 'node:net'
+import { gunzipSync } from 'node:zlib'
 import {
   createHttpServer,
   DEFAULT_BODY_LIMIT_BYTES,
@@ -109,16 +110,16 @@ function postDeclaring(path: string, declaredLength: number) {
   })
 }
 
-async function respond(result: Record<string, unknown>): Promise<{ status: number; bytes: Buffer }> {
+async function respond(result: Record<string, unknown>, headers: Record<string, string> = {}): Promise<{ status: number; bytes: Buffer; headers: Record<string, string | string[] | undefined> }> {
   const server = createHttpServer({ run: async () => result })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const port = (server.address() as AddressInfo).port
   try {
     return await new Promise((resolve, reject) => {
-      const req = request({ hostname: '127.0.0.1', port, path: '/x', method: 'GET' }, (res) => {
+      const req = request({ hostname: '127.0.0.1', port, path: '/x', method: 'GET', headers }, (res) => {
         const chunks: Buffer[] = []
         res.on('data', (c: Buffer) => chunks.push(c))
-        res.on('end', () => resolve({ status: res.statusCode ?? 0, bytes: Buffer.concat(chunks) }))
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, bytes: Buffer.concat(chunks), headers: res.headers }))
       })
       req.on('error', reject)
       req.end()
@@ -134,6 +135,17 @@ describe('Node HTTP response encoding', () => {
     const out = await respond({ statusCode: 200, headers: { 'content-type': 'image/webp' }, body: raw.toString('base64'), isBase64Encoded: true })
     expect(out.status).toBe(200)
     expect(out.bytes.equals(raw)).toBe(true)
+  })
+
+  it('gzips a large JSON body for a client that accepts it', async () => {
+    const json = JSON.stringify({ events: Array.from({ length: 200 }, (_, i) => ({ id: i, title: 'Soccer practice' })) })
+    const out = await respond({ statusCode: 200, headers: { 'content-type': 'application/json' }, body: json }, { 'accept-encoding': 'gzip' })
+    expect(out.headers['content-encoding']).toBe('gzip')
+    expect(String(out.headers['vary'])).toMatch(/accept-encoding/i)
+    expect(gunzipSync(out.bytes).toString('utf8')).toBe(json)
+    const plain = await respond({ statusCode: 200, headers: { 'content-type': 'application/json' }, body: json })
+    expect(plain.headers['content-encoding']).toBeUndefined()
+    expect(plain.bytes.toString('utf8')).toBe(json)
   })
 
   it('leaves text bodies unchanged', async () => {

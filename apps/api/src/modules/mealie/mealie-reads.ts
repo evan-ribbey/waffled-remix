@@ -1,5 +1,5 @@
 // Read-only Mealie views: meal plan, recipe library, recipe detail and the image proxy.
-import { mealieFetch, mealieFetchRaw, mealieNoShoppingList, MealieError } from './mealie-client'
+import { mealieFetch, mealieFetchRaw, mealieNoShoppingList, MealieError, readCapped } from './mealie-client'
 import { cacheGet } from './mealie-cache'
 import type { MealieConn } from './mealie-connection'
 
@@ -90,7 +90,10 @@ export function readRecipes(householdId: string, conn: MealieConn, search: strin
   return cacheGet(householdId, 'recipes', `${search}|${page}`, async () => {
     const qs = new URLSearchParams({ page: String(page), perPage: String(RECIPES_PER_PAGE) })
     if (search) qs.set('search', search)
-    else qs.set('orderBy', 'name')
+    else {
+      qs.set('orderBy', 'name')
+      qs.set('orderDirection', 'asc') // Mealie's pagination defaults to desc
+    }
     const res = await mealieFetch<{ items?: RawRecipe[]; page?: number; total_pages?: number }>(conn, `/api/recipes?${qs}`)
     const items = (res.items ?? []).map((r): MealieRecipeCard => ({
       id: r.id,
@@ -133,8 +136,10 @@ export async function fetchImage(conn: MealieConn, recipeId: string, size: strin
   const res = await mealieFetchRaw({ baseUrl: conn.baseUrl }, `/api/media/recipes/${recipeId}/images/${file}`)
   if (res.status === 404) throw new MealieError('NotFound', 'Image not found', 404)
   if (!res.ok) throw new MealieError('MealieUnavailable', "Can't reach Mealie right now.", 502)
+  const contentType = res.headers.get('content-type') ?? 'image/webp'
+  if (!/^image\//i.test(contentType)) throw new MealieError('MealieUnavailable', "Can't reach Mealie right now.", 502)
   try {
-    return { bytes: Buffer.from(await res.arrayBuffer()), contentType: res.headers.get('content-type') ?? 'image/webp' }
+    return { bytes: await readCapped(res), contentType }
   } catch {
     throw new MealieError('MealieUnavailable', "Can't reach Mealie right now.", 502)
   }

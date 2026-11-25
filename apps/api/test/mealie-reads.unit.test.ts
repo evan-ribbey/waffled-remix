@@ -8,7 +8,8 @@ afterEach(() => vi.unstubAllGlobals())
 
 describe('fetchImage', () => {
   it('maps a body that dies mid-read to 502 MealieUnavailable', async () => {
-    const res = { status: 200, ok: true, headers: new Headers(), arrayBuffer: () => Promise.reject(new DOMException('aborted', 'AbortError')) }
+    const body = new ReadableStream({ pull(c) { c.error(new DOMException('aborted', 'AbortError')) } })
+    const res = new Response(body, { status: 200, headers: { 'content-type': 'image/webp' } })
     vi.stubGlobal('fetch', vi.fn(async () => res))
     await expect(fetchImage(conn, RID, 'min')).rejects.toMatchObject({ name: 'MealieUnavailable', statusCode: 502 })
   })

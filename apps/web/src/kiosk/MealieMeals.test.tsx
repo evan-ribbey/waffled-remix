@@ -1,3 +1,4 @@
+import { act } from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { ApiSendError } from '../lib/api/client'
@@ -159,6 +160,33 @@ describe('MealieMeals — Recipes', () => {
     expect(recipes).toHaveBeenLastCalledWith({ page: 2 })
     expect(screen.getByText('Alpha')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
+  })
+
+  it('ignores a double tap on Load more', async () => {
+    recipes.mockResolvedValueOnce({ items: [card('a', 'Alpha')], page: 1, totalPages: 3 })
+    recipes.mockResolvedValue({ items: [card('b', 'Beta')], page: 2, totalPages: 3 })
+    open()
+    await screen.findByText('Alpha')
+    const btn = screen.getByRole('button', { name: 'Load more' })
+    fireEvent.click(btn)
+    fireEvent.click(btn)
+    await screen.findByText('Beta')
+    expect(screen.getAllByText('Beta')).toHaveLength(1)
+    expect(recipes).toHaveBeenCalledTimes(2)
+  })
+
+  it('drops a Load more page that returns after the search changed', async () => {
+    let finish!: (v: unknown) => void
+    recipes.mockResolvedValueOnce({ items: [card('a', 'Alpha')], page: 1, totalPages: 2 })
+    recipes.mockReturnValueOnce(new Promise((r) => { finish = r }))
+    recipes.mockResolvedValueOnce({ items: [card('t', 'Tacos')], page: 1, totalPages: 1 })
+    open()
+    await screen.findByText('Alpha')
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+    fireEvent.change(screen.getByPlaceholderText('Search recipes'), { target: { value: 'taco' } })
+    await screen.findByText('Tacos')
+    await act(async () => { finish({ items: [card('b', 'Beta')], page: 2, totalPages: 2 }) })
+    expect(screen.queryByText('Beta')).toBeNull()
   })
 
   it('renders a placeholder tile when there is no image', async () => {

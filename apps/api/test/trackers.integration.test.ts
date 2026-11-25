@@ -375,3 +375,37 @@ describe('tracker entries api', () => {
     expect((await call('GET', `/api/trackers/${trackerId}/entries`, kevin)).statusCode).toBe(404)
   })
 })
+
+describe('tracker input bounds', () => {
+  const mk = async (body: Record<string, unknown>) => call('POST', '/api/trackers', kevin, body)
+  const idOf = (r: { body: string }) => JSON.parse(r.body).tracker.id as string
+
+  it('caps title, emoji and note lengths with 400', async () => {
+    expect((await mk({ title: 'x'.repeat(81) })).statusCode).toBe(400)
+    expect((await mk({ title: 'Ok', emoji: '💊'.repeat(9) })).statusCode).toBe(400)
+    const ok = await mk({ title: 'x'.repeat(80), emoji: '👨‍👩‍👧‍👦' })
+    expect(ok.statusCode).toBe(201)
+    const id = idOf(ok)
+    expect((await call('PATCH', `/api/trackers/${id}`, kevin, { title: 'y'.repeat(81) })).statusCode).toBe(400)
+    expect((await call('POST', `/api/trackers/${id}/entries`, kevin, { note: 'n'.repeat(501) })).statusCode).toBe(400)
+    const entry = await call('POST', `/api/trackers/${id}/entries`, kevin, { note: 'n'.repeat(500) })
+    expect(entry.statusCode).toBe(201)
+    const entryId = JSON.parse(entry.body).entry.id
+    expect((await call('PATCH', `/api/tracker-entries/${entryId}`, kevin, { note: 'n'.repeat(501) })).statusCode).toBe(400)
+  })
+
+  it('rejects a sortOrder outside the int range with 400, not 500', async () => {
+    const id = idOf(await mk({ title: 'Sorted' }))
+    expect((await call('PATCH', `/api/trackers/${id}`, kevin, { sortOrder: 3_000_000_000 })).statusCode).toBe(400)
+    expect((await call('PATCH', `/api/trackers/${id}`, kevin, { sortOrder: -3_000_000_000 })).statusCode).toBe(400)
+    expect((await call('PATCH', `/api/trackers/${id}`, kevin, { sortOrder: 2_147_483_647 })).statusCode).toBe(200)
+  })
+
+  it('will not clear the person on an entry of an ask-who tracker', async () => {
+    const id = idOf(await mk({ title: 'Who-dose', askPerson: true }))
+    const entryId = JSON.parse((await call('POST', `/api/trackers/${id}/entries`, kevin, { personId: kevinId })).body).entry.id
+    const res = await call('PATCH', `/api/tracker-entries/${entryId}`, kevin, { personId: null })
+    expect(res.statusCode).toBe(422)
+    expect(JSON.parse(res.body).error).toBe('PersonRequired')
+  })
+})

@@ -5,6 +5,7 @@ const h = vi.hoisted(() => ({
   trackers: [] as unknown[],
   archived: [] as unknown[],
   person: { id: 'me', memberType: 'adult', isAdmin: false } as unknown,
+  live: vi.fn(),
   api: {
     list: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn(),
     entries: vi.fn(), updateEntry: vi.fn(), deleteEntry: vi.fn(),
@@ -14,7 +15,7 @@ vi.mock('../../lib/api/trackers', () => ({
   useTrackers: () => ({ trackers: h.trackers, error: null, refresh: () => {} }),
   trackersApi: h.api,
 }))
-vi.mock('../../lib/api/bus', () => ({ useRefetchOn: () => {}, useLiveRefresh: () => {}, emit: () => {} }))
+vi.mock('../../lib/api/bus', () => ({ useRefetchOn: () => {}, useLiveRefresh: h.live, emit: () => {} }))
 vi.mock('../../lib/api/persons', () => ({
   useHousehold: () => ({ household: { timezone: 'America/Chicago' }, person: h.person }),
   usePersons: () => ({ persons: [{ id: 'p1', name: 'Ana', avatarEmoji: null, colorHex: null }], loading: false, error: false }),
@@ -38,6 +39,12 @@ beforeEach(() => {
 })
 
 describe('TrackersPanel', () => {
+  it('polls so logs from other devices show up', async () => {
+    render(<TrackersPanel />)
+    await screen.findByText('Tylenol')
+    expect(h.live).toHaveBeenCalled()
+  })
+
   it('hides Add/Edit/Archive for a kid', async () => {
     h.person = { id: 'k', memberType: 'child', isAdmin: false }
     render(<TrackersPanel />)

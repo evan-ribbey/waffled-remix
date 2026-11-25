@@ -91,14 +91,22 @@ export function isUuid(v: string): boolean {
   return UUID_RE.test(v)
 }
 
+// Lengths are UTF-16 units, matching the web inputs' maxLength.
+export const TITLE_MAX = 80
+export const EMOJI_MAX = 16
+export const NOTE_MAX = 500
+const PG_INT_MAX = 2_147_483_647
+
 function cleanTitle(v: unknown): string {
   if (typeof v !== 'string' || !v.trim()) throw new TrackerValidationError('title is required')
+  if (v.trim().length > TITLE_MAX) throw new TrackerValidationError(`title must be at most ${TITLE_MAX} characters`)
   return v.trim()
 }
 
 function cleanEmoji(v: unknown): string | null {
   if (v === null || v === undefined) return null
   if (typeof v !== 'string') throw new TrackerValidationError('emoji must be a string')
+  if (v.trim().length > EMOJI_MAX) throw new TrackerValidationError(`emoji must be at most ${EMOJI_MAX} characters`)
   return v.trim() || null
 }
 
@@ -136,7 +144,7 @@ export async function updateTracker(
     add('ask_person', body.askPerson)
   }
   if (body.sortOrder !== undefined) {
-    if (typeof body.sortOrder !== 'number' || !Number.isInteger(body.sortOrder)) {
+    if (typeof body.sortOrder !== 'number' || !Number.isInteger(body.sortOrder) || Math.abs(body.sortOrder) > PG_INT_MAX) {
       throw new TrackerValidationError('sortOrder must be an integer')
     }
     add('sort_order', body.sortOrder)
@@ -222,6 +230,7 @@ function parseOccurredAt(v: unknown): Date {
 function cleanNote(v: unknown): string | null {
   if (v === null || v === undefined) return null
   if (typeof v !== 'string') throw new TrackerValidationError('note must be a string')
+  if (v.trim().length > NOTE_MAX) throw new TrackerValidationError(`note must be at most ${NOTE_MAX} characters`)
   return v.trim() || null
 }
 
@@ -325,6 +334,14 @@ export async function updateEntry(tenant: Tenant, id: string, body: Record<strin
   }
   if (body.occurredAt !== undefined) add('occurred_at', parseOccurredAt(body.occurredAt))
   if (body.personId !== undefined) {
+    if (body.personId === null) {
+      const r = await query<{ ask_person: boolean }>(
+        `select t.ask_person from tracker_entries e join trackers t on t.household_id = e.household_id and t.id = e.tracker_id
+          where e.household_id = $1 and e.id = $2`,
+        [tenant.householdId, id]
+      )
+      if (r.rows[0]?.ask_person) throw new PersonRequiredError('personId is required for this tracker')
+    }
     add('person_id', body.personId === null ? null : await checkPerson(tenant.householdId, body.personId))
   }
   if (body.note !== undefined) add('note', cleanNote(body.note))

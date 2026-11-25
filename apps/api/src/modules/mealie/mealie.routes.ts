@@ -48,6 +48,7 @@ export function registerMealieRoutes(api: Api): void {
     const conn = await requireConnection(tenant.householdId)
     const { bytes, contentType } = await fetchImage(conn, String(req.params.recipeId ?? ''), String(req.params.size ?? ''))
     res.type(contentType)
+    res.header('X-Content-Type-Options', 'nosniff')
     await res.sendFile(bytes, { cacheControl: 'private, max-age=3600', lastModified: false })
   }))
 

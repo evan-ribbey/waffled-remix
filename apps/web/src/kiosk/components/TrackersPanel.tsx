@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { trackersApi, type Tracker } from '../../lib/api/trackers'
-import { useRefetchOn } from '../../lib/api/bus'
+import { useLiveRefresh, useRefetchOn } from '../../lib/api/bus'
 import { useHousehold } from '../../lib/api/persons'
 import { formatLastTime } from '../../lib/trackers-format'
 import { TrackerModal } from './TrackerModal'
@@ -23,6 +23,7 @@ export function TrackersPanel() {
   const [historyId, setHistoryId] = useState<string | null>(null)
   const refresh = useCallback(() => setNonce((n) => n + 1), [])
   useRefetchOn(['trackers'], refresh)
+  useLiveRefresh(refresh)
 
   useEffect(() => {
     let alive = true

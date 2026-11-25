@@ -16,17 +16,19 @@ function dayAbbrev(ymd: string): string {
   return new Date(`${ymd}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })
 }
 
-function useMealieWeek(days: number) {
+// Tonight and the Week card share one 7-day range so the server answers both from one cache entry.
+function useMealieWeek() {
   const tz = useHouseholdTz()
   const start = householdToday(tz)
-  const end = addDaysYmd(start, days - 1)
+  const end = addDaysYmd(start, 6)
   return { start, ...useMealieQuery(() => mealieApi.mealplan(start, end), [start, end]) }
 }
 
 export function MealieTonightCard() {
   const navigate = useNavigate()
-  const { start, data, error, retry } = useMealieWeek(1)
-  if (error) return <div className="card" style={{ padding: '14px 16px' }}><MealieError error={error} onRetry={retry} compact /></div>
+  const { start, data, error, retry } = useMealieWeek()
+  // Last-known plan beats an error line; the error only shows with nothing to fall back on.
+  if (error && !data) return <div className="card" style={{ padding: '14px 16px' }}><MealieError error={error} onRetry={retry} compact /></div>
   const today = (data?.entries ?? []).filter((e) => e.date === start)
   const dinners = today.filter((e) => e.entryType === 'dinner')
   const shown = dinners.length ? dinners : today
@@ -63,7 +65,7 @@ export function MealieTonightCard() {
 
 export function MealieWeekCard() {
   const navigate = useNavigate()
-  const { start, data, error, retry } = useMealieWeek(7)
+  const { start, data, error, retry } = useMealieWeek()
   const days = Array.from({ length: 7 }, (_, i) => addDaysYmd(start, i))
   const byDay = (d: string): MealieEntry[] => (data?.entries ?? []).filter((e) => e.date === d)
   const count = (data?.entries ?? []).filter((e) => e.entryType === 'dinner').length
@@ -79,9 +81,9 @@ export function MealieWeekCard() {
           </Link>
         )}
       </div>
-      {error != null && <MealieError error={error} onRetry={retry} compact />}
+      {error != null && !data && <MealieError error={error} onRetry={retry} compact />}
       {!error && !data && <div className="tiny muted" style={{ padding: '6px 0' }}>Loading…</div>}
-      {!error && data && days.map((d) => (
+      {data && days.map((d) => (
         <div key={d} data-day={d} style={{ display: 'flex', alignItems: 'flex-start', gap: 11, padding: '6px 0', borderBottom: '1px solid var(--hair-2)' }}>
           <div className="tiny" style={{ width: 34, fontWeight: 700, color: 'var(--ink-2)' }}>{dayAbbrev(d)}</div>
           <div style={{ flex: 1, minWidth: 0 }}>

@@ -1,6 +1,8 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router'
+import { act } from 'react'
 import { ApiSendError } from '../../lib/api/client'
+import { emit } from '../../lib/api/bus'
 
 const mealplan = vi.fn()
 const shopping = vi.fn()
@@ -161,5 +163,29 @@ describe('not connected', () => {
     expect(screen.getByLabelText('Add grocery item')).toBeTruthy()
     expect(mealplan).not.toHaveBeenCalled()
     expect(shopping).not.toHaveBeenCalled()
+  })
+})
+
+describe('transient Mealie failures', () => {
+  it('Tonight keeps showing the last plan when a refresh fails, and reads the same week range as the Week card', async () => {
+    mealplan.mockResolvedValueOnce({ entries: [entry(1, 'dinner', 'Lasagna', 'lasagna')] })
+    wrap(<TonightCardSlot />)
+    await screen.findByText('Lasagna')
+    expect(mealplan.mock.calls[0]).toEqual([today, '2026-11-30'])
+    mealplan.mockRejectedValueOnce(unavailable)
+    await act(async () => { emit('mealie') })
+    await waitFor(() => expect(mealplan).toHaveBeenCalledTimes(2))
+    expect(screen.getByText('Lasagna')).toBeTruthy()
+    expect(screen.queryByText("Can't reach Mealie right now.")).toBeNull()
+  })
+
+  it('the Week card keeps its rows when a refresh fails', async () => {
+    mealplan.mockResolvedValueOnce({ entries: [entry(1, 'dinner', 'Lasagna', 'lasagna')] })
+    wrap(<WeekDinnersCard />)
+    await screen.findByText('Lasagna')
+    mealplan.mockRejectedValueOnce(unavailable)
+    await act(async () => { emit('mealie') })
+    await waitFor(() => expect(mealplan).toHaveBeenCalledTimes(2))
+    expect(screen.getByText('Lasagna')).toBeTruthy()
   })
 })

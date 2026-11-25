@@ -17,7 +17,7 @@ cd "$(git rev-parse --show-toplevel)"
 git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null && { echo "tag v$VERSION already exists" >&2; exit 1; }
 
 # Entries under [Unreleased] are everything between its heading and the next "## [" heading.
-entries="$(awk '/^## \[Unreleased\]/{f=1;next} /^## \[/{f=0} f' CHANGELOG.md | grep -c '[^[:space:]]' || true)"
+entries="$(awk '/^## \[Unreleased\]/{f=1;next} /^## \[/{f=0} f' CHANGELOG.md | grep -c '^- ' || true)"
 [ "$entries" -ge 1 ] || { echo "CHANGELOG.md needs at least one entry under [Unreleased]" >&2; exit 1; }
 
 prev="$(grep -m1 -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | sed -E 's/^## \[([^]]+)\].*/\1/')"

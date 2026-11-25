@@ -111,6 +111,8 @@ beforeEach(async () => {
   fake.state.failItemPut = false
   fake.state.recipes = []
   fake.state.images = {}
+  fake.state.redirectTo = null
+  fake.state.imageContentType = null
   __resetMealieCache()
   await disconnect()
 })
@@ -210,6 +212,41 @@ describe('mealie connection', () => {
     expect(row.rows[0]).toEqual({ shopping_list_id: 'list-2', shopping_list_name: 'Costco' })
   })
 
+  it('requires the token again when the Mealie address changes', async () => {
+    await connect()
+    fake.state.requests.length = 0
+    const res = await call('PUT', '/api/mealie/connection', kevin, { baseUrl: 'http://127.0.0.1:9' })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).message).toBe('Enter the API token again for the new Mealie address')
+    expect(fake.state.requests.length).toBe(0)
+  })
+
+  it('forgets the chosen shopping list when the Mealie address changes', async () => {
+    await connect({ shoppingListId: 'list-2' })
+    const other = await startFakeMealie()
+    try {
+      const res = await call('PUT', '/api/mealie/connection', kevin, { baseUrl: other.url, token: other.token })
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body)).toMatchObject({ baseUrl: other.url, shoppingListId: null, shoppingListName: null })
+    } finally {
+      await other.close()
+    }
+  })
+
+  it('stays recoverable when the stored token can no longer be decrypted', async () => {
+    await connect()
+    await withClient((c) => c.query(`update mealie_connections set token_encrypted = $2 where household_id = $1`, [householdId, Buffer.alloc(40, 7).toString('base64')]))
+    const get = await call('GET', '/api/mealie/connection', kevin)
+    expect(get.statusCode).toBe(200)
+    expect(JSON.parse(get.body)).toMatchObject({ connected: true, tokenUnreadable: true })
+    const read = await call('GET', '/api/mealie/shopping-lists', kevin)
+    expect(read.statusCode).toBe(502)
+    expect(JSON.parse(read.body).error).toBe('MealieAuthFailed')
+    expect((await call('PUT', '/api/mealie/connection', kevin, { baseUrl: fake.url })).statusCode).toBe(400)
+    expect((await connect()).statusCode).toBe(200)
+    expect(JSON.parse((await call('GET', '/api/mealie/connection', kevin)).body).tokenUnreadable).toBeUndefined()
+  })
+
   it('disconnects', async () => {
     await connect()
     expect((await disconnect()).statusCode).toBe(204)
@@ -218,6 +255,14 @@ describe('mealie connection', () => {
 })
 
 describe('mealie client errors', () => {
+  it('reports a redirecting Mealie address instead of following it with the token', async () => {
+    fake.state.redirectTo = 'https://food.example.com'
+    const res = await connect()
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).message).toMatch(/redirected to https:\/\/food\.example\.com/)
+    expect(fake.state.requests.every((r) => r.auth === null)).toBe(true)
+  })
+
   it('maps an unreachable Mealie to 502 MealieUnavailable', async () => {
     await connect()
     fake.state.down = true
@@ -318,7 +363,7 @@ describe('mealie recipes read', () => {
     expect(sent).toContain('perPage=24')
     expect(sent).not.toContain('orderBy')
     const all = JSON.parse((await call('GET', '/api/mealie/recipes', kid)).body)
-    expect(fake.state.requests.filter((r) => r.path.startsWith('/api/recipes?')).at(-1)!.path).toContain('orderBy=name')
+    expect(fake.state.requests.filter((r) => r.path.startsWith('/api/recipes?')).at(-1)!.path).toContain('orderBy=name&orderDirection=asc')
     expect(all).toMatchObject({ page: 1, totalPages: 1 })
     expect(all.items[0]).toEqual({ id: recipe(1).id, slug: 'r-1', name: 'Tomato soup', imageUrl: `/api/mealie/images/${recipe(1).id}/min`, totalTime: '30 min', description: 'd' })
     expect(all.items[1].imageUrl).toBeNull()
@@ -365,6 +410,19 @@ describe('mealie image proxy', () => {
     expect(r.headers['content-type']).toBe('image/webp')
     expect(r.headers['cache-control']).toBe('private, max-age=3600')
     expect(fake.state.requests.some((q) => q.path === `/api/media/recipes/${RID}/images/min-original.webp`)).toBe(true)
+  })
+
+  it('marks images nosniff and refuses a non-image or oversized body', async () => {
+    await connect()
+    fake.state.images[RID] = Buffer.from('<html>proxy login</html>')
+    fake.state.imageContentType = 'text/html'
+    expect((await call('GET', `/api/mealie/images/${RID}/min`, kid)).statusCode).toBe(502)
+    fake.state.imageContentType = null
+    fake.state.images[RID] = Buffer.alloc(6 * 1024 * 1024, 1)
+    expect((await call('GET', `/api/mealie/images/${RID}/tiny`, kid)).statusCode).toBe(502)
+    fake.state.images[RID] = Buffer.from([1, 2, 3])
+    const ok = await call('GET', `/api/mealie/images/${RID}/original`, kid)
+    expect((ok as unknown as { headers: Record<string, string> }).headers['x-content-type-options']).toBe('nosniff')
   })
 
   it('maps original and tiny sizes', async () => {

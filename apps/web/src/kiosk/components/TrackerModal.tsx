@@ -36,7 +36,7 @@ export function TrackerModal({ tracker, onClose, onSaved }: { tracker?: Tracker;
         <div className="field-row">
           <label className="field" style={{ flex: 3 }}>
             <span>Title</span>
-            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Tylenol" autoFocus />
+            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Tylenol" maxLength={80} autoFocus />
           </label>
           <label className="field" style={{ flex: 1 }}>
             <span>Emoji</span>

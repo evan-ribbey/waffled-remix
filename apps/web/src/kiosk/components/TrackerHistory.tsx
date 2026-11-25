@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { trackersApi, type Tracker, type TrackerEntry } from '../../lib/api/trackers'
-import { useRefetchOn } from '../../lib/api/bus'
+import { useLiveRefresh, useRefetchOn } from '../../lib/api/bus'
 import { usePersons } from '../../lib/api/persons'
 import { formatEntryTime, isoToZonedInput, zonedInputToIso } from '../../lib/trackers-format'
 import { ConfirmDialog } from './ConfirmDialog'
+
+const PAGE = 50
+const MAX_PAGE = 200
 
 export function TrackerHistory({ tracker, tz, onBack }: { tracker: Tracker; tz: string; onBack: () => void }) {
   const { persons } = usePersons()
@@ -18,22 +21,42 @@ export function TrackerHistory({ tracker, tz, onBack }: { tracker: Tracker; tz: 
   const [deleting, setDeleting] = useState<TrackerEntry | null>(null)
   const refresh = useCallback(() => setNonce((n) => n + 1), [])
   useRefetchOn(['trackers'], refresh)
+  useLiveRefresh(refresh)
+  // Bumped on every reload so a Load more that started before it is discarded.
+  const gen = useRef(0)
+  const loaded = useRef(0)
+  const filterKey = `${tracker.id}|${personId}`
+  const lastFilter = useRef(filterKey)
 
   useEffect(() => {
     let alive = true
-    trackersApi.entries(tracker.id, { personId: personId || undefined, before: undefined })
-      .then((d) => { if (alive) { setEntries(d.entries); setNext(d.nextBefore); setError(false) } })
+    const g = ++gen.current
+    // A refresh of the same filter re-reads every row already shown, not just page 1.
+    const sameFilter = lastFilter.current === filterKey
+    lastFilter.current = filterKey
+    const limit = sameFilter && loaded.current > 0 ? Math.min(Math.max(loaded.current, PAGE), MAX_PAGE) : undefined
+    trackersApi.entries(tracker.id, { personId: personId || undefined, before: undefined, limit })
+      .then((d) => {
+        if (!alive || g !== gen.current) return
+        setEntries(d.entries); setNext(d.nextBefore); setError(false); loaded.current = d.entries.length
+      })
       .catch(() => { if (alive) setError(true) })
     return () => { alive = false }
-  }, [tracker.id, personId, nonce])
+  }, [tracker.id, personId, nonce, filterKey])
 
   async function loadMore() {
     if (!next) return
+    const g = gen.current
     try {
       const d = await trackersApi.entries(tracker.id, { personId: personId || undefined, before: next })
-      setEntries((cur) => [...(cur ?? []), ...d.entries])
+      if (g !== gen.current) return
+      setEntries((cur) => {
+        const merged = [...(cur ?? []), ...d.entries]
+        loaded.current = merged.length
+        return merged
+      })
       setNext(d.nextBefore)
-    } catch { setError(true) }
+    } catch { if (g === gen.current) setError(true) }
   }
 
   async function saveEdit() {

@@ -153,8 +153,11 @@ function isUnhashedAsset(url) {
 async function networkFirstShell(request) {
   try {
     const res = await fetch(request)
-    const cache = await caches.open(SHELL)
-    cache.put(SHELL_URL, res.clone())
+    // Same rule as precache(): only a real HTML page may become the offline shell.
+    if (res.ok && (res.headers.get('content-type') || '').includes('text/html')) {
+      const cache = await caches.open(SHELL)
+      cache.put(SHELL_URL, res.clone())
+    }
     return res
   } catch {
     const cached =

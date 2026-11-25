@@ -16,6 +16,31 @@ export const mealieNotConnected = () => new MealieError('MealieNotConnected', 'M
 export const mealieNoShoppingList = () => new MealieError('MealieNoShoppingList', 'No Mealie shopping list is chosen.', 409)
 
 const TIMEOUT_MS = 8000
+export const MAX_BODY_BYTES = 5 * 1024 * 1024
+
+/** Reads a response body, refusing more than `max` bytes (declared or streamed). */
+export async function readCapped(res: Response, max = MAX_BODY_BYTES): Promise<Buffer> {
+  const declared = Number(res.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > max) {
+    await res.body?.cancel().catch(() => undefined)
+    throw mealieUnavailable()
+  }
+  if (!res.body) return Buffer.alloc(0)
+  const reader = res.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > max) {
+      await reader.cancel().catch(() => undefined)
+      throw mealieUnavailable()
+    }
+    chunks.push(value)
+  }
+  return Buffer.concat(chunks)
+}
 
 export interface MealieTarget {
   baseUrl: string
@@ -47,9 +72,21 @@ async function send(target: MealieTarget, path: string, init?: { method?: string
       headers,
       body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
       signal: AbortSignal.timeout(TIMEOUT_MS),
+      // Never follow: the token must only reach the address the admin entered.
+      redirect: 'manual',
     })
   } catch {
     throw mealieUnavailable()
+  }
+  if (res.status >= 300 && res.status < 400) {
+    const to = res.headers.get('location')
+    let where = 'another address'
+    try {
+      if (to) where = new URL(to, target.baseUrl).origin
+    } catch {
+      // keep the generic wording
+    }
+    throw new MealieError('MealieRedirected', `Mealie redirected to ${where}. Use that address instead.`, 502)
   }
   if (res.status === 401 || res.status === 403) throw mealieAuthFailed()
   return res
@@ -57,7 +94,7 @@ async function send(target: MealieTarget, path: string, init?: { method?: string
 
 async function detailOf(res: Response): Promise<string> {
   try {
-    const j = (await res.json()) as { detail?: unknown; message?: unknown }
+    const j = JSON.parse((await readCapped(res, 64 * 1024)).toString('utf8')) as { detail?: unknown; message?: unknown }
     if (typeof j.detail === 'string') return j.detail
     if (typeof j.message === 'string') return j.message
   } catch {
@@ -72,8 +109,9 @@ export async function mealieFetch<T>(target: MealieTarget, path: string, init?: 
   if (res.status === 404) throw new MealieError('NotFound', 'Not found in Mealie', 404)
   if (res.status === 422) throw new MealieError('BadRequest', await detailOf(res), 400)
   if (!res.ok) throw mealieUnavailable()
+  const body = await readCapped(res)
   try {
-    return (await res.json()) as T
+    return JSON.parse(body.toString('utf8')) as T
   } catch {
     throw mealieUnavailable()
   }

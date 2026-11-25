@@ -1,5 +1,5 @@
 // Meals page while connected to Mealie: this week's plan and the recipe library.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { useHousehold } from '../lib/api'
 import { mealieApi, useMealieQuery, type MealieRecipeCard } from '../lib/api/mealie'
@@ -101,8 +101,14 @@ function RecipesTab() {
     return () => clearTimeout(t)
   }, [search, debounced])
 
+  // Bumped whenever page 1 reloads, so an older Load more can't append to newer results.
+  const gen = useRef(0)
+  const [moreBusy, setMoreBusy] = useState(false)
+
   useEffect(() => {
     let alive = true
+    gen.current++
+    setMoreBusy(false)
     setLoaded(false)
     mealieApi.recipes({ ...(debounced ? { search: debounced } : {}), page: 1 })
       .then((r) => { if (alive) { setItems(r.items); setPage(r.page); setTotalPages(r.totalPages); setError(null); setLoaded(true) } })
@@ -111,12 +117,20 @@ function RecipesTab() {
   }, [debounced, nonce])
 
   async function more() {
+    if (moreBusy) return
+    const g = gen.current
+    setMoreBusy(true)
     try {
       const r = await mealieApi.recipes({ ...(debounced ? { search: debounced } : {}), page: page + 1 })
+      if (g !== gen.current) return
       setItems((cur) => [...cur, ...r.items])
       setPage(r.page)
       setTotalPages(r.totalPages)
-    } catch (e) { setError(e) }
+    } catch (e) {
+      if (g === gen.current) setError(e)
+    } finally {
+      if (g === gen.current) setMoreBusy(false)
+    }
   }
 
   return (
@@ -139,7 +153,7 @@ function RecipesTab() {
       )}
       {!error && page < totalPages && (
         <div style={{ textAlign: 'center', margin: '16px 0' }}>
-          <button type="button" className="btn btn-ghost" onClick={more}>Load more</button>
+          <button type="button" className="btn btn-ghost" onClick={more} disabled={moreBusy}>Load more</button>
         </div>
       )}
     </>

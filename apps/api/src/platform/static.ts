@@ -1,6 +1,7 @@
 import type http from 'node:http'
 import { readFile, stat } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
+import { acceptsGzip, gzip, isCompressible } from './compress'
 
 export interface StaticOptions {
   webRoot?: string
@@ -27,8 +28,12 @@ const TYPES: Record<string, string> = {
 const IMMUTABLE = 'public, max-age=31536000, immutable'
 const NO_CACHE_FILES = new Set(['/index.html', '/sw.js', '/asset-manifest.json'])
 
+// Only the calendar OAuth callbacks live under /auth on the api; /auth/callback is the
+// web app's SSO landing route and must get index.html.
+const API_AUTH_PATH = /^\/auth\/[^/]+\/calendar(\/|$)/
+
 function isApiPath(p: string): boolean {
-  return p === '/healthz' || p === '/api' || p.startsWith('/api/') || p === '/auth' || p.startsWith('/auth/')
+  return p === '/healthz' || p === '/api' || p.startsWith('/api/') || API_AUTH_PATH.test(p)
 }
 
 // Resolve a request path under root; null when it escapes the root or is malformed.
@@ -53,18 +58,41 @@ async function isFile(path: string): Promise<boolean> {
   }
 }
 
+// Gzipped bodies of web files, keyed by path and invalidated by size+mtime. Media is
+// images (never compressible), so this stays bounded by the size of the web build.
+const gzCache = new Map<string, { etag: string; body: Buffer }>()
+
 async function send(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   path: string,
   cacheControl: string,
 ): Promise<void> {
-  const body = await readFile(path)
-  res.writeHead(200, {
-    'content-type': TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream',
-    'content-length': body.byteLength,
-    'cache-control': cacheControl,
-  })
+  const info = await stat(path)
+  const etag = `W/"${info.size.toString(16)}-${Math.floor(info.mtimeMs).toString(16)}"`
+  const type = TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream'
+  const compressible = isCompressible(type, info.size)
+  const headers: http.OutgoingHttpHeaders = { 'content-type': type, 'cache-control': cacheControl, etag }
+  if (compressible) headers.vary = 'Accept-Encoding'
+  if (req.headers['if-none-match'] === etag) {
+    res.writeHead(304, headers)
+    res.end()
+    return
+  }
+  let body: Buffer
+  if (compressible && acceptsGzip(req)) {
+    let hit = gzCache.get(path)
+    if (!hit || hit.etag !== etag) {
+      hit = { etag, body: gzip(await readFile(path)) }
+      gzCache.set(path, hit)
+    }
+    body = hit.body
+    headers['content-encoding'] = 'gzip'
+  } else {
+    body = await readFile(path)
+  }
+  headers['content-length'] = body.byteLength
+  res.writeHead(200, headers)
   res.end(req.method === 'HEAD' ? undefined : body)
 }
 
