@@ -363,7 +363,7 @@ describe('mealie recipes read', () => {
     expect(sent).toContain('perPage=24')
     expect(sent).not.toContain('orderBy')
     const all = JSON.parse((await call('GET', '/api/mealie/recipes', kid)).body)
-    expect(fake.state.requests.filter((r) => r.path.startsWith('/api/recipes?')).at(-1)!.path).toContain('orderBy=name')
+    expect(fake.state.requests.filter((r) => r.path.startsWith('/api/recipes?')).at(-1)!.path).toContain('orderBy=name&orderDirection=asc')
     expect(all).toMatchObject({ page: 1, totalPages: 1 })
     expect(all.items[0]).toEqual({ id: recipe(1).id, slug: 'r-1', name: 'Tomato soup', imageUrl: `/api/mealie/images/${recipe(1).id}/min`, totalTime: '30 min', description: 'd' })
     expect(all.items[1].imageUrl).toBeNull()

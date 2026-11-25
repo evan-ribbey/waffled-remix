@@ -90,7 +90,10 @@ export function readRecipes(householdId: string, conn: MealieConn, search: strin
   return cacheGet(householdId, 'recipes', `${search}|${page}`, async () => {
     const qs = new URLSearchParams({ page: String(page), perPage: String(RECIPES_PER_PAGE) })
     if (search) qs.set('search', search)
-    else qs.set('orderBy', 'name')
+    else {
+      qs.set('orderBy', 'name')
+      qs.set('orderDirection', 'asc') // Mealie's pagination defaults to desc
+    }
     const res = await mealieFetch<{ items?: RawRecipe[]; page?: number; total_pages?: number }>(conn, `/api/recipes?${qs}`)
     const items = (res.items ?? []).map((r): MealieRecipeCard => ({
       id: r.id,
